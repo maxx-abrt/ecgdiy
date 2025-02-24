@@ -1,0 +1,14 @@
+Ce qui est à dispo :
+- Module CJMCU-1292 ADS1292R : gnd ; clk ; GPIO2 ; GPIO1 ; sck ; miso ; mosi ; cs ; drdy ; start ; pwon/reset ; vdd
+- Raspberry pi 4 2gb 8 Gb carte sd
+
+Voici comment ils sont connectés entre eux : 
+VCC	Alimentation (3.3V)	3.3V (Pin 1)
+GND	Masse	GND (Pin 6)
+MOSI	Données SPI (entrée)	GPIO10 (Pin 19)
+MISO	Données SPI (sortie)	GPIO9 (Pin 21)
+SCK	Horloge SPI	GPIO11 (Pin 23)
+CS	Sélection du module (Chip Select)	GPIO8 (Pin 24)
+DRDY	Signal "Data Ready"	GPIO17 (Pin 11)
+PWDN	Mise en veille / Reset (optionnel mais recommandé)	GPIO27 (Pin 13)
+START	Démarrage de l'acquisition (optionnel mais recommandé)	GPIO22 (Pin 15)
