@@ -158,19 +158,21 @@ function updateSystemStats() {
 function updateDebugInfo() {
     fetch('/api/debug-info')
         .then(response => response.json())
-        .then(debug => {
+        .then(data => {
+            if (!data.debug_info) return;
+            
             const debugInfo = document.getElementById('debug-info');
             debugInfo.innerHTML = `
                 <h5>Débogage</h5>
-                <div>État DRDY: ${debug.debug_info.drdy_status ? 'Actif' : 'Inactif'}</div>
-                <div>État SPI: ${debug.debug_info.spi_status ? 'OK' : 'Erreur'}</div>
-                <div>Qualité Signal: ${debug.debug_info.signal_quality}</div>
-                <div>Dernière erreur: ${debug.debug_info.last_error || 'Aucune'}</div>
-                <h6>Registres:</h6>
-                <pre>${JSON.stringify(debug.debug_info.register_values, null, 2)}</pre>
-                <h6>Données brutes:</h6>
-                <pre>${JSON.stringify(debug.debug_info.raw_data, null, 2)}</pre>
+                <div>État DRDY: ${data.debug_info.drdy_status ? 'Actif' : 'Inactif'}</div>
+                <div>État SPI: ${data.debug_info.spi_status ? 'OK' : 'Erreur'}</div>
+                <div>Qualité Signal: ${data.debug_info.signal_quality}</div>
+                <div>Dernière erreur: ${data.debug_info.last_error || 'Aucune'}</div>
             `;
+        })
+        .catch(error => {
+            console.error('Erreur debug:', error);
+            document.getElementById('debug-info').innerHTML = '<div>Erreur de mise à jour debug</div>';
         });
 }
 

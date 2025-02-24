@@ -68,7 +68,7 @@ class ECGSystem:
         self.heart_rate_buffer = deque(maxlen=10)
         self.data_lock = Lock()
         
-        self.last_peak_time = time.sleep(0)
+        self.last_peak_time = time.time()
         self.heart_rate = 0
         
         # System stats initialization
@@ -83,6 +83,15 @@ class ECGSystem:
         # Initialize hardware after all variables are set
         self.setup_gpio()
         self.initialize_ads1292r()
+        
+        self.debug_info = {
+            'raw_data': [],
+            'spi_status': False,
+            'drdy_status': False,
+            'register_values': {},
+            'last_error': None,
+            'signal_quality': 'Unknown'
+        }
 
     def get_cpu_temperature(self):
         try:
@@ -343,15 +352,29 @@ def ecg_data():
     return jsonify(data)
 
 @app.route('/api/debug-info')
-def debug_info():
-    ecg_system.debug_registers()
-    debug_data = {
-        'debug_info': ecg_system.debug_info,
-        'system_stats': ecg_system.system_stats,
-        'buffer_size': len(ecg_system.data_buffer),
-        'heart_rate_buffer': list(ecg_system.heart_rate_buffer)
-    }
-    return jsonify(debug_data)
+def get_debug_info():
+    try:
+        return jsonify({
+            'debug_info': {
+                'drdy_status': GPIO.input(Configuration.DRDY_PIN) == 0,
+                'spi_status': ecg_system.debug_info['spi_status'],
+                'signal_quality': ecg_system.debug_info['signal_quality'],
+                'last_error': ecg_system.debug_info['last_error'],
+                'register_values': ecg_system.debug_info['register_values'],
+                'raw_data': list(ecg_system.signal_buffers['raw_ch1'])[-10:]  # Derniers points
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            'debug_info': {
+                'drdy_status': False,
+                'spi_status': False,
+                'signal_quality': 'Error',
+                'last_error': str(e),
+                'register_values': {},
+                'raw_data': []
+            }
+        })
 
 @app.route('/api/set-gain/<gain>')
 def set_gain_route(gain):
