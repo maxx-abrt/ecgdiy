@@ -24,6 +24,21 @@ class ECGSystem:
     WREG = 0x40  # Define WREG as 0x40
 
     def __init__(self):
+        # Ajout des buffers pour différents signaux
+        self.signal_buffers = {
+            'raw_ch1': deque(maxlen=5000),
+            'raw_ch2': deque(maxlen=5000),
+            'filtered_ch1': deque(maxlen=5000),
+            'filtered_ch2': deque(maxlen=5000),
+            'test_signal': deque(maxlen=5000),
+            'rld_signal': deque(maxlen=5000)
+        }
+        
+        # Configuration du logging
+        self.log_file = 'ecg_data.json'
+        self.last_log_time = time.time()
+        self.log_interval = 1.0  # Intervalle en secondes
+        
         # Ajout des paramètres de sensibilité
         self.gain_settings = {
             '1x': 0x00,
@@ -247,47 +262,56 @@ class ECGSystem:
 
     def read_data(self):
         try:
-            if GPIO.input(Configuration.DRDY_PIN) == 0:  # DRDY is active LOW
-                self.debug_info['drdy_status'] = True
-                
-                # Read data
-                GPIO.output(Configuration.CS_PIN, GPIO.LOW)
-                # Read 9 bytes (status + 24-bit for each channel)
-                data = self.spi.xfer2([0x00] * 9)
-                GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
-                
-                self.debug_info['raw_data'] = [hex(x) for x in data]
-                
-                # Check status byte
-                status = data[0]
-                if status == 0xFF:
-                    self.debug_info['last_error'] = "Communication error - check SPI connections"
-                    return None, None
-                    
-                if status & 0xF0:
-                    self.debug_info['last_error'] = f"Device error: {hex(status)}"
-                    return None, None
-                
-                # Convert data
-                ch1 = self._convert_24bit_to_int(data[3:6]) * 2.42 / 0x7FFFFF
-                ch2 = self._convert_24bit_to_int(data[6:9]) * 2.42 / 0x7FFFFF
-                
-                self.debug_info['signal_quality'] = self.check_signal_quality(ch1)
-                self.debug_info['spi_status'] = True
-                
-                with self.data_lock:
-                    self.data_buffer.append(ch1)
-                    self.calculate_heart_rate(ch1)
-                
-                return ch1, ch2
-            else:
-                self.debug_info['drdy_status'] = False
-                return None, None
-            
+            if GPIO.input(Configuration.DRDY_PIN) == 0:
+                data = self._read_raw_data()
+                if data:
+                    self._process_and_store_data(data)
+                    self._log_data_to_file()
+                return data
         except Exception as e:
             self.debug_info['last_error'] = f"Read error: {str(e)}"
-            self.debug_info['spi_status'] = False
-            return None, None
+            return None
+
+    def _read_raw_data(self):
+        if GPIO.input(Configuration.DRDY_PIN) == 0:  # DRDY is active LOW
+            self.debug_info['drdy_status'] = True
+            
+            # Read data
+            GPIO.output(Configuration.CS_PIN, GPIO.LOW)
+            # Read 9 bytes (status + 24-bit for each channel)
+            data = self.spi.xfer2([0x00] * 9)
+            GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
+            
+            self.debug_info['raw_data'] = [hex(x) for x in data]
+            
+            # Check status byte
+            status = data[0]
+            if status == 0xFF:
+                self.debug_info['last_error'] = "Communication error - check SPI connections"
+                return None
+                
+            if status & 0xF0:
+                self.debug_info['last_error'] = f"Device error: {hex(status)}"
+                return None
+            
+            # Convert data
+            ch1 = self._convert_24bit_to_int(data[3:6]) * 2.42 / 0x7FFFFF
+            ch2 = self._convert_24bit_to_int(data[6:9]) * 2.42 / 0x7FFFFF
+            
+            self.debug_info['signal_quality'] = self.check_signal_quality(ch1)
+            self.debug_info['spi_status'] = True
+            
+            return ch1, ch2
+        else:
+            self.debug_info['drdy_status'] = False
+            return None
+
+    def _process_and_store_data(self, data):
+        ch1, ch2 = data
+        with self.data_lock:
+            self.signal_buffers['raw_ch1'].append(ch1)
+            self.signal_buffers['raw_ch2'].append(ch2)
+            # Ajout de filtres et calculs supplémentaires...
 
     def _convert_24bit_to_int(self, data_bytes):
         # Conversion des données 24-bit en entier signé
@@ -343,6 +367,16 @@ def debug_info():
 def set_gain_route(gain):
     success = ecg_system.set_gain(gain)
     return jsonify({'success': success, 'current_gain': ecg_system.current_gain})
+
+@app.route('/api/data')
+def get_data():
+    return jsonify({
+        'raw_ch1': list(ecg_system.signal_buffers['raw_ch1']),
+        'raw_ch2': list(ecg_system.signal_buffers['raw_ch2']),
+        'filtered_ch1': list(ecg_system.signal_buffers['filtered_ch1']),
+        'filtered_ch2': list(ecg_system.signal_buffers['filtered_ch2']),
+        'timestamp': time.time()
+    })
 
 def data_collection_thread():
     while True:

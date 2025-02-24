@@ -1,44 +1,41 @@
-let ecgChart = null;
-let isRecording = true;
+const charts = {
+    'raw-ch1': null,
+    'raw-ch2': null,
+    'filtered-ch1': null,
+    'filtered-ch2': null
+};
 
-function initializeChart() {
-    const trace = {
-        y: [],
-        mode: 'lines',
-        line: {
-            color: '#00ff00',
-            width: 1
+function initializeCharts() {
+    const chartConfigs = {
+        'raw-ch1': {
+            title: 'Canal 1 (Raw)',
+            yaxis: { range: [-2, 2] }
         },
-        name: 'ECG'
-    };
-
-    const layout = {
-        title: 'Monitoring ECG en Temps Réel',
-        xaxis: {
-            title: 'Échantillons',
-            showgrid: true
+        'raw-ch2': {
+            title: 'Canal 2 (Raw)',
+            yaxis: { range: [-2, 2] }
         },
-        yaxis: {
-            title: 'Amplitude (mV)',
-            range: [-2, 2],
-            showgrid: true
+        'filtered-ch1': {
+            title: 'Canal 1 (Filtered)',
+            yaxis: { range: [-2, 2] }
         },
-        plot_bgcolor: '#111',
-        paper_bgcolor: '#111',
-        font: {
-            color: '#fff'
-        },
-        margin: {
-            l: 50,
-            r: 50,
-            b: 50,
-            t: 50,
-            pad: 4
+        'filtered-ch2': {
+            title: 'Canal 2 (Filtered)',
+            yaxis: { range: [-2, 2] }
         }
     };
 
-    Plotly.newPlot('ecg-chart', [trace], layout);
-    ecgChart = document.getElementById('ecg-chart');
+    Object.entries(chartConfigs).forEach(([id, config]) => {
+        charts[id] = createChart(id, config);
+    });
+}
+
+function updateCharts(data) {
+    Object.entries(charts).forEach(([id, chart]) => {
+        Plotly.extendTraces(id, {
+            y: [[data[id]]]
+        }, [0], 1000);
+    });
 }
 
 function updateData() {
@@ -47,9 +44,7 @@ function updateData() {
     fetch('/api/ecg-data')
         .then(response => response.json())
         .then(data => {
-            Plotly.update('ecg-chart', {
-                y: [data.ecg_data]
-            });
+            updateCharts(data);
             
             document.getElementById('heart-rate').textContent = 
                 `Fréquence cardiaque: ${data.heart_rate.toFixed(1)} BPM`;
@@ -123,7 +118,7 @@ function setGain(gain) {
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
-    initializeChart();
+    initializeCharts();
     setInterval(updateData, 20);  // 50Hz update rate
     setInterval(updateSystemStats, 1000);  // 1Hz system stats update
     setInterval(updateDebugInfo, 1000);
