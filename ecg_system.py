@@ -281,7 +281,7 @@ class ECGSystem:
         return filtered[-1]
 
     def _process_and_store_data(self, data):
-        if data is None:
+        if data is None or not isinstance(data, (list, tuple)) or len(data) != 2:
             return
         
         ch1, ch2 = data
