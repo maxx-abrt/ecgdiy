@@ -25,8 +25,10 @@ class ECGSystem:
     def __init__(self):
         self.spi = spidev.SpiDev()
         self.spi.open(0, 0)
-        self.spi.max_speed_hz = 1000000
+        self.spi.max_speed_hz = 500000  # Réduire la vitesse
         self.spi.mode = 1
+        self.spi.bits_per_word = 8
+        self.spi.lsbfirst = False
         
         self.data_buffer = deque(maxlen=5000)
         self.heart_rate_buffer = deque(maxlen=10)
@@ -102,25 +104,43 @@ class ECGSystem:
         GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
         
     def initialize_ads1292r(self):
-        # Reset
+        # Reset plus long
         GPIO.output(Configuration.PWDN_PIN, GPIO.LOW)
-        time.sleep(0.1)
+        time.sleep(0.5)  # Augmenter le temps de reset
         GPIO.output(Configuration.PWDN_PIN, GPIO.HIGH)
+        time.sleep(0.5)  # Attendre la stabilisation
+        
+        # Vérification de la communication
+        GPIO.output(Configuration.START_PIN, GPIO.LOW)
         time.sleep(0.1)
         
-        # Configuration des registres
-        self.write_register(0x01, 0x00)  # CONFIG1: HR mode
-        self.write_register(0x02, 0xE0)  # CONFIG2: Test signals
-        self.write_register(0x03, 0xF0)  # LOFF: Lead-off detection off
-        self.write_register(0x04, 0x00)  # CH1SET: Gain 6, normal electrode input
-        self.write_register(0x05, 0x00)  # CH2SET: Gain 6, normal electrode input
-        self.write_register(0x06, 0x2C)  # RLD_SENS: RLD connected to positive side
-        self.write_register(0x07, 0x00)  # LOFF_SENS: Lead-off detection disabled
-        self.write_register(0x08, 0x00)  # LOFF_STAT: Lead-off status
+        # Configuration des registres avec vérification
+        configs = [
+            (0x01, 0x00),  # CONFIG1: HR mode
+            (0x02, 0xE0),  # CONFIG2: Test signals
+            (0x03, 0xF0),  # LOFF: Lead-off detection off
+            (0x04, 0x60),  # CH1SET: Gain 6, normal electrode input
+            (0x05, 0x60),  # CH2SET: Gain 6, normal electrode input
+            (0x06, 0x2C),  # RLD_SENS: RLD connected to positive side
+            (0x07, 0x00),  # LOFF_SENS: Lead-off detection disabled
+            (0x08, 0x00)   # LOFF_STAT: Lead-off status
+        ]
         
+        for addr, value in configs:
+            self.write_register(addr, value)
+            # Vérification de l'écriture
+            GPIO.output(Configuration.CS_PIN, GPIO.LOW)
+            read_data = self.spi.xfer2([0x20 | addr, 0x00])  # 0x20 pour lire
+            GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
+            
+            if read_data[1] != value:
+                self.debug_info['last_error'] = f"Erreur d'écriture registre {hex(addr)}: attendu {hex(value)}, lu {hex(read_data[1])}"
+        
+        # Attendre la stabilisation
+        time.sleep(0.1)
         # Démarrage des conversions
         GPIO.output(Configuration.START_PIN, GPIO.HIGH)
-        
+
     def debug_registers(self):
         try:
             # Lecture des registres importants
@@ -160,18 +180,23 @@ class ECGSystem:
         try:
             self.debug_info['drdy_status'] = GPIO.input(Configuration.DRDY_PIN)
             
-            if self.debug_info['drdy_status'] == 0:
+            if self.debug_info['drdy_status'] == 0:  # DRDY is active LOW
                 GPIO.output(Configuration.CS_PIN, GPIO.LOW)
+                # Lire 9 octets: status + 24-bit pour chaque canal
                 data = self.spi.xfer2([0x00] * 9)
                 GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
                 
-                # Store raw data for debugging
-                self.debug_info['raw_data'] = data
+                self.debug_info['raw_data'] = [hex(x) for x in data]
                 self.debug_info['spi_status'] = True
                 
+                # Vérification du status byte
                 status = data[0]
-                ch1 = ((data[3] << 16) | (data[4] << 8) | data[5]) * 2.42 / 0x7FFFFF
-                ch2 = ((data[6] << 16) | (data[7] << 8) | data[8]) * 2.42 / 0x7FFFFF
+                if status & 0xF0:  # Bits d'erreur dans le status byte
+                    self.debug_info['last_error'] = f"Status error: {hex(status)}"
+                
+                # Conversion des données avec signe
+                ch1 = self._convert_24bit_to_int(data[3:6]) * 2.42 / 0x7FFFFF
+                ch2 = self._convert_24bit_to_int(data[6:9]) * 2.42 / 0x7FFFFF
                 
                 self.debug_info['signal_quality'] = self.check_signal_quality(ch1)
                 
@@ -180,10 +205,18 @@ class ECGSystem:
                     self.calculate_heart_rate(ch1)
                 
                 return ch1, ch2
+            
         except Exception as e:
             self.debug_info['last_error'] = str(e)
             self.debug_info['spi_status'] = False
             return None, None
+
+    def _convert_24bit_to_int(self, data_bytes):
+        # Conversion des données 24-bit en entier signé
+        value = (data_bytes[0] << 16) | (data_bytes[1] << 8) | data_bytes[2]
+        if value & 0x800000:
+            value -= 0x1000000
+        return value
 
 # Application Flask
 app = Flask(__name__)
