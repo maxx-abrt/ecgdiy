@@ -25,15 +25,27 @@ class ECGSystem:
     WREG = 0x40  # Define WREG as 0x40
 
     def __init__(self):
-        # Ajout des buffers pour différents signaux
+        self.spi = spidev.SpiDev()
+        self.spi.open(0, 0)
+        self.spi.max_speed_hz = 1000000
+        self.spi.mode = 1
+        
         self.signal_buffers = {
-            'raw_ch1': deque(maxlen=5000),
-            'raw_ch2': deque(maxlen=5000),
-            'filtered_ch1': deque(maxlen=5000),
-            'filtered_ch2': deque(maxlen=5000),
-            'test_signal': deque(maxlen=5000),
-            'rld_signal': deque(maxlen=5000)
+            'raw_ch1': deque(maxlen=1000),
+            'raw_ch2': deque(maxlen=1000),
+            'filtered_ch1': deque(maxlen=1000),
+            'filtered_ch2': deque(maxlen=1000)
         }
+        
+        # Coefficients de filtrage (repris du code Arduino)
+        self.filter_coeffs = np.array([
+            -72, 122, -31, -99, 117, 0, -121, 105, 34,
+            -137, 84, 70, -146, 55, 104, -147, 20, 135
+            # ... (utiliser les mêmes coefficients que dans le code Arduino)
+        ]) / 32768.0  # Normalisation
+        
+        self.filter_state_ch1 = np.zeros(len(self.filter_coeffs))
+        self.filter_state_ch2 = np.zeros(len(self.filter_coeffs))
         
         # Configuration du logging
         self.log_file = 'ecg_data.json'
@@ -52,31 +64,11 @@ class ECGSystem:
         }
         self.current_gain = '6x'  # Gain par défaut
         
-        # SPI setup
-        self.spi = spidev.SpiDev()
-        self.spi.open(0, 0)
-        self.spi.max_speed_hz = 500000  # Reduced to 500kHz
-        self.spi.mode = 1                # CPOL=0, CPHA=1
-        self.spi.bits_per_word = 8
-        self.spi.lsbfirst = False
-        self.spi.cshigh = False         # CS active low
-        
-        
-        # Initialize debug_info first
-        self.debug_info = {
-            'raw_data': [],
-            'spi_status': False,
-            'drdy_status': False,
-            'register_values': {},
-            'last_error': None,
-            'signal_quality': 'Unknown'
-        }
-        
         self.data_buffer = deque(maxlen=5000)
         self.heart_rate_buffer = deque(maxlen=10)
         self.data_lock = Lock()
         
-        self.last_peak_time = time.time()
+        self.last_peak_time = time.sleep(0)
         self.heart_rate = 0
         
         # System stats initialization
@@ -273,25 +265,36 @@ class ECGSystem:
             self.debug_info['last_error'] = f"Read error: {str(e)}"
             return None
 
+    def apply_filter(self, data, state):
+        # Implémentation du filtre FIR
+        filtered = np.convolve(data, self.filter_coeffs, mode='valid')
+        return filtered[-1]
+
     def _process_and_store_data(self, data):
         if data is None:
             return
         
         ch1, ch2 = data
         with self.data_lock:
-            # Stockage des données brutes
+            # Stockage données brutes
             self.signal_buffers['raw_ch1'].append(ch1)
             self.signal_buffers['raw_ch2'].append(ch2)
             
-            # Filtrage simple (moyenne mobile)
-            filtered_ch1 = np.mean(list(self.signal_buffers['raw_ch1'])[-10:])
-            filtered_ch2 = np.mean(list(self.signal_buffers['raw_ch2'])[-10:])
+            # Application du filtrage
+            filtered_ch1 = self.apply_filter(
+                np.array(list(self.signal_buffers['raw_ch1'])[-161:]), 
+                self.filter_state_ch1
+            )
+            filtered_ch2 = self.apply_filter(
+                np.array(list(self.signal_buffers['raw_ch2'])[-161:]), 
+                self.filter_state_ch2
+            )
             
             self.signal_buffers['filtered_ch1'].append(filtered_ch1)
             self.signal_buffers['filtered_ch2'].append(filtered_ch2)
             
-            # Calcul du rythme cardiaque
-            self.calculate_heart_rate(filtered_ch1)
+            # Détection QRS et calcul du rythme cardiaque
+            self.detect_qrs_and_calculate_hr(filtered_ch1)
 
     def _convert_24bit_to_int(self, data_bytes):
         # Conversion des données 24-bit en entier signé

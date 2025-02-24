@@ -1,6 +1,7 @@
 let isRecording = false;
 let updateInterval;
-const MAX_POINTS = 200;
+const MAX_POINTS = 500;
+const UPDATE_INTERVAL_MS = 50;
 
 const charts = {
     'raw-ch1-chart': null,
@@ -42,19 +43,19 @@ function startDataCollection() {
 function initializeCharts() {
     const chartConfigs = {
         'raw-ch1-chart': {
-            title: 'Canal 1 (Raw)',
+            title: 'ECG Canal 1 (Raw)',
             color: '#2196F3'
         },
-        'raw-ch2-chart': {
-            title: 'Canal 2 (Raw)',
+        'filtered-ch1-chart': {
+            title: 'ECG Canal 1 (Filtered)',
             color: '#4CAF50'
         },
-        'filtered-ch1-chart': {
-            title: 'Canal 1 (Filtré)',
-            color: '#FF9800'
+        'raw-ch2-chart': {
+            title: 'ECG Canal 2 (Raw)',
+            color: '#FFC107'
         },
         'filtered-ch2-chart': {
-            title: 'Canal 2 (Filtré)',
+            title: 'ECG Canal 2 (Filtered)',
             color: '#9C27B0'
         }
     };
@@ -64,20 +65,19 @@ function initializeCharts() {
             y: [],
             type: 'scatter',
             mode: 'lines',
-            line: { color: config.color, width: 2 }
+            line: { color: config.color, width: 2 },
+            name: config.title
         }], {
             title: config.title,
             height: 250,
             margin: { t: 30, b: 30, l: 50, r: 20 },
-            yaxis: { 
+            yaxis: {
                 range: [-2, 2],
-                title: 'Voltage (mV)',
-                gridcolor: '#f0f0f0'
+                title: 'Voltage (mV)'
             },
             xaxis: {
-                title: 'Échantillons',
                 showgrid: true,
-                gridcolor: '#f0f0f0'
+                range: [0, MAX_POINTS]
             },
             plot_bgcolor: 'white',
             paper_bgcolor: 'white'
@@ -106,25 +106,25 @@ function fetchData() {
 }
 
 function updateCharts() {
-    fetchData()
+    fetch('/api/data')
+        .then(response => response.json())
         .then(data => {
             Object.entries(charts).forEach(([id, chart]) => {
-                if (data[id] && data[id].length > 0) {
-                    const trace = {
+                if (data[id]) {
+                    const update = {
                         y: [data[id]],
                         x: [...Array(data[id].length)].map((_, i) => i)
                     };
-                    
-                    Plotly.update(id, trace, {}, [0])
-                        .catch(err => console.error(`Erreur mise à jour ${id}:`, err));
+                    Plotly.update(id, update, {
+                        xaxis: {
+                            range: [Math.max(0, data[id].length - MAX_POINTS), 
+                                   data[id].length]
+                        }
+                    });
                 }
             });
         })
-        .catch(error => {
-            console.error('Erreur de récupération des données:', error);
-            // Réessayer après une pause
-            setTimeout(updateCharts, 1000);
-        });
+        .catch(console.error);
 }
 
 function updateData() {
@@ -216,5 +216,5 @@ function setGain(gain) {
 // Initialisation au chargement de la page
 document.addEventListener('DOMContentLoaded', initializeApp); 
 
-// Démarrage de la mise à jour
-setInterval(updateCharts, 100);  // Mise à jour toutes les 100ms 
+// Démarrage de la mise à jour continue
+setInterval(updateCharts, UPDATE_INTERVAL_MS); 
