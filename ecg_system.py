@@ -20,6 +20,8 @@ class Configuration:
     START_PIN = 22 # GPIO22 (Pin 15)
 
 class ECGSystem:
+    WREG = 0x40  # Define WREG as 0x40
+
     def __init__(self):
         self.spi = spidev.SpiDev()
         self.spi.open(0, 0)
@@ -73,6 +75,7 @@ class ECGSystem:
                 self.last_peak_time = current_time
 
     def setup_gpio(self):
+        GPIO.setwarnings(False)
         GPIO.setmode(GPIO.BCM)
         GPIO.setup(Configuration.DRDY_PIN, GPIO.IN)
         GPIO.setup(Configuration.START_PIN, GPIO.OUT)
@@ -85,7 +88,7 @@ class ECGSystem:
         
     def write_register(self, address, value):
         GPIO.output(Configuration.CS_PIN, GPIO.LOW)
-        self.spi.xfer2([WREG | address, 0x00, value])
+        self.spi.xfer2([self.WREG | address, 0x00, value])
         GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
         
     def initialize_ads1292r(self):
