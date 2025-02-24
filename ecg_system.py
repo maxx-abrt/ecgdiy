@@ -138,46 +138,47 @@ class ECGSystem:
         GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
         
     def initialize_ads1292r(self):
-        # Reset complet et plus long
-        GPIO.output(Configuration.START_PIN, GPIO.LOW)
-        GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
-        time.sleep(0.2)
-        
-        # Reset hardware
-        GPIO.output(Configuration.PWDN_PIN, GPIO.LOW)
-        time.sleep(1.0)  # Augmentation du temps de reset
-        GPIO.output(Configuration.PWDN_PIN, GPIO.HIGH)
-        time.sleep(0.5)  # Attente plus longue après reset
-        
-        # Stop Data Continuous
-        GPIO.output(Configuration.CS_PIN, GPIO.LOW)
-        time.sleep(0.01)
-        self.spi.xfer2([0x11])  # SDATAC
-        time.sleep(0.01)
-        GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
-        time.sleep(0.05)
-        
-        # Configuration avec vérification
-        configs = [
-            (0x01, 0x03),  # CONFIG1: 1kSPS, continuous mode
-            (0x02, 0xA0),  # CONFIG2: Test signal square wave
-            (0x03, 0xE0),  # LOFF: Lead-off comp off
-            (0x04, self.gain_settings[self.current_gain]),  # CH1SET: PGA gain
-            (0x05, self.gain_settings[self.current_gain]),  # CH2SET: PGA gain
-            (0x06, 0x2C),  # RLD_SENS
-            (0x07, 0x00),  # LOFF_SENS
-            (0x08, 0x00),  # LOFF_STAT
-            (0x09, 0x02),  # RESP1: Internal clock
-            (0x0A, 0x03),  # RESP2: Internal oscillator
-        ]
-        
-        # Méthode de vérification améliorée
-        for addr, value in configs:
-            success = self._write_verify_register(addr, value)
-            if not success:
-                return False
-        
-        return self._start_continuous_mode()
+        try:
+            # Reset plus long et plus stable
+            GPIO.output(Configuration.START_PIN, GPIO.LOW)
+            GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
+            GPIO.output(Configuration.PWDN_PIN, GPIO.LOW)
+            time.sleep(0.5)
+            
+            GPIO.output(Configuration.PWDN_PIN, GPIO.HIGH)
+            time.sleep(0.2)
+            
+            # Stop Data Continuous
+            GPIO.output(Configuration.CS_PIN, GPIO.LOW)
+            self.spi.xfer2([0x11])  # SDATAC
+            GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
+            time.sleep(0.05)
+            
+            # Configuration avec vérification et retry
+            configs = [
+                (0x01, 0x00),  # CONFIG1: HR mode
+                (0x02, 0x10),  # CONFIG2: Test signal disabled
+                (0x03, 0xE0),  # LOFF: Lead-off comp off
+                (0x04, self.gain_settings[self.current_gain]),  # CH1SET
+                (0x05, self.gain_settings[self.current_gain]),  # CH2SET
+                (0x06, 0x00),  # RLD_SENS off
+                (0x07, 0x00),  # LOFF_SENS
+                (0x08, 0x00),  # LOFF_STAT
+                (0x09, 0x02),  # RESP1
+                (0x0A, 0x03),  # RESP2
+            ]
+            
+            for addr, value in configs:
+                for _ in range(5):  # 5 tentatives par registre
+                    if self._write_verify_register(addr, value):
+                        break
+                    time.sleep(0.1)
+            
+            return self._start_continuous_mode()
+            
+        except Exception as e:
+            self.debug_info['last_error'] = f"Init error: {str(e)}"
+            return False
 
     def _write_verify_register(self, addr, value):
         for _ in range(3):  # 3 tentatives
@@ -264,31 +265,29 @@ class ECGSystem:
         try:
             if GPIO.input(Configuration.DRDY_PIN) == 0:
                 GPIO.output(Configuration.CS_PIN, GPIO.LOW)
-                time.sleep(0.0001)  # 100µs delay
+                time.sleep(0.0001)
                 
-                # Lecture des données
-                data = self.spi.xfer2([0x00] * 9)  # Lire 9 octets
-                
+                data = self.spi.xfer2([0x00] * 9)
                 GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
                 
-                # Conversion des données
                 status = data[0]
                 ch1_data = self._convert_24bit_to_int(data[1:4])
                 ch2_data = self._convert_24bit_to_int(data[4:7])
                 
-                # Conversion en mV
-                ch1_mv = (ch1_data * 2.4 / 0x7FFFFF)
-                ch2_mv = (ch2_data * 2.4 / 0x7FFFFF)
+                # Ajustement de l'échelle et conversion en mV
+                vref = 2.4  # Tension de référence
+                gain_factor = int(self.current_gain.replace('x', ''))
+                
+                ch1_mv = (ch1_data * vref) / (gain_factor * 0x7FFFFF)
+                ch2_mv = (ch2_data * vref) / (gain_factor * 0x7FFFFF)
                 
                 self._process_and_store_data((ch1_mv, ch2_mv))
-                self.debug_info['drdy_status'] = True
-                self.debug_info['spi_status'] = True
+                self.debug_info['signal_quality'] = self.check_signal_quality(ch1_mv)
                 
                 return ch1_mv, ch2_mv
                 
         except Exception as e:
             self.debug_info['last_error'] = f"Read error: {str(e)}"
-            self.debug_info['spi_status'] = False
             return None
 
     def _process_and_store_data(self, data):
@@ -330,7 +329,13 @@ class ECGSystem:
 
 # Application Flask
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={
+    r"/api/*": {
+        "origins": "*",
+        "methods": ["GET", "POST"],
+        "allow_headers": ["Content-Type"]
+    }
+})
 ecg_system = ECGSystem()
 
 @app.route('/')

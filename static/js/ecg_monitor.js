@@ -88,14 +88,43 @@ function initializeCharts() {
     });
 }
 
-function updateCharts(data) {
-    for (const [id, chart] of Object.entries(charts)) {
-        if (data[id]) {
-            Plotly.extendTraces(id, {
-                y: [[data[id]]]
-            }, [0], 1000);
+function fetchData() {
+    return fetch('/api/data', {
+        method: 'GET',
+        headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+        },
+        credentials: 'same-origin'
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
         }
-    }
+        return response.json();
+    });
+}
+
+function updateCharts() {
+    fetchData()
+        .then(data => {
+            Object.entries(charts).forEach(([id, chart]) => {
+                if (data[id] && data[id].length > 0) {
+                    const trace = {
+                        y: [data[id]],
+                        x: [...Array(data[id].length)].map((_, i) => i)
+                    };
+                    
+                    Plotly.update(id, trace, {}, [0])
+                        .catch(err => console.error(`Erreur mise à jour ${id}:`, err));
+                }
+            });
+        })
+        .catch(error => {
+            console.error('Erreur de récupération des données:', error);
+            // Réessayer après une pause
+            setTimeout(updateCharts, 1000);
+        });
 }
 
 function updateData() {
@@ -186,3 +215,6 @@ function setGain(gain) {
 
 // Initialisation au chargement de la page
 document.addEventListener('DOMContentLoaded', initializeApp); 
+
+// Démarrage de la mise à jour
+setInterval(updateCharts, 100);  // Mise à jour toutes les 100ms 
