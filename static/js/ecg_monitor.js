@@ -1,5 +1,6 @@
 let isRecording = false;
 let updateInterval;
+const MAX_POINTS = 200;
 
 const charts = {
     'raw-ch1-chart': null,
@@ -8,48 +9,83 @@ const charts = {
     'filtered-ch2-chart': null
 };
 
+function initializeApp() {
+    initializeCharts();
+    startDataCollection();
+    
+    // Démarrer les mises à jour périodiques
+    setInterval(updateSystemStats, 2000);
+    setInterval(updateDebugInfo, 1000);
+}
+
+function startDataCollection() {
+    updateInterval = setInterval(() => {
+        fetch('/api/data')
+            .then(response => {
+                if (!response.ok) throw new Error('Network response was not ok');
+                return response.json();
+            })
+            .then(data => {
+                Object.entries(charts).forEach(([id, chart]) => {
+                    if (data[id]) {
+                        Plotly.update(id, {
+                            y: [data[id]],
+                            x: [...Array(data[id].length)].map((_, i) => i)
+                        });
+                    }
+                });
+            })
+            .catch(error => console.error('Erreur de mise à jour:', error));
+    }, 100);
+}
+
 function initializeCharts() {
     const chartConfigs = {
         'raw-ch1-chart': {
             title: 'Canal 1 (Raw)',
-            yaxis: { range: [-2, 2], title: 'Voltage (mV)' }
+            color: '#2196F3'
         },
         'raw-ch2-chart': {
             title: 'Canal 2 (Raw)',
-            yaxis: { range: [-2, 2], title: 'Voltage (mV)' }
+            color: '#4CAF50'
         },
         'filtered-ch1-chart': {
             title: 'Canal 1 (Filtré)',
-            yaxis: { range: [-2, 2], title: 'Voltage (mV)' }
+            color: '#FF9800'
         },
         'filtered-ch2-chart': {
             title: 'Canal 2 (Filtré)',
-            yaxis: { range: [-2, 2], title: 'Voltage (mV)' }
+            color: '#9C27B0'
         }
     };
 
-    for (const [id, config] of Object.entries(chartConfigs)) {
-        const layout = {
-            title: config.title,
-            height: 300,
-            margin: { t: 40, b: 40, l: 60, r: 20 },
-            yaxis: config.yaxis,
-            xaxis: { 
-                title: 'Temps (s)',
-                showgrid: true
-            },
-            showlegend: false,
-            plot_bgcolor: '#f8f9fa',
-            paper_bgcolor: '#f8f9fa'
-        };
-
+    Object.entries(chartConfigs).forEach(([id, config]) => {
         Plotly.newPlot(id, [{
             y: [],
             type: 'scatter',
             mode: 'lines',
-            line: { color: '#2196F3', width: 1.5 }
-        }], layout);
-    }
+            line: { color: config.color, width: 2 }
+        }], {
+            title: config.title,
+            height: 250,
+            margin: { t: 30, b: 30, l: 50, r: 20 },
+            yaxis: { 
+                range: [-2, 2],
+                title: 'Voltage (mV)',
+                gridcolor: '#f0f0f0'
+            },
+            xaxis: {
+                title: 'Échantillons',
+                showgrid: true,
+                gridcolor: '#f0f0f0'
+            },
+            plot_bgcolor: 'white',
+            paper_bgcolor: 'white'
+        }, {
+            responsive: true,
+            displayModeBar: false
+        });
+    });
 }
 
 function updateCharts(data) {
@@ -146,19 +182,6 @@ function setGain(gain) {
                 console.log(`Gain changed to ${data.current_gain}`);
             }
         });
-}
-
-function initializeApp() {
-    initializeCharts();
-    
-    // Démarrer les mises à jour périodiques
-    setInterval(updateSystemStats, 2000);
-    setInterval(updateDebugInfo, 1000);
-    
-    // Gestionnaire d'erreurs global pour fetch
-    window.addEventListener('unhandledrejection', function(event) {
-        console.error('Erreur de promesse non gérée:', event.reason);
-    });
 }
 
 // Initialisation au chargement de la page

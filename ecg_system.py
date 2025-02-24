@@ -191,7 +191,6 @@ class ECGSystem:
             self.spi.xfer2([self.WREG | addr, 0x00, value])
             time.sleep(0.01)
             GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
-            time.sleep(0.01)
             
             # Lecture de vérification
             GPIO.output(Configuration.CS_PIN, GPIO.LOW)
@@ -264,46 +263,32 @@ class ECGSystem:
     def read_data(self):
         try:
             if GPIO.input(Configuration.DRDY_PIN) == 0:
-                data = self._read_raw_data()
-                if data:
-                    self._process_and_store_data(data)
-                return data
+                GPIO.output(Configuration.CS_PIN, GPIO.LOW)
+                time.sleep(0.0001)  # 100µs delay
+                
+                # Lecture des données
+                data = self.spi.xfer2([0x00] * 9)  # Lire 9 octets
+                
+                GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
+                
+                # Conversion des données
+                status = data[0]
+                ch1_data = self._convert_24bit_to_int(data[1:4])
+                ch2_data = self._convert_24bit_to_int(data[4:7])
+                
+                # Conversion en mV
+                ch1_mv = (ch1_data * 2.4 / 0x7FFFFF)
+                ch2_mv = (ch2_data * 2.4 / 0x7FFFFF)
+                
+                self._process_and_store_data((ch1_mv, ch2_mv))
+                self.debug_info['drdy_status'] = True
+                self.debug_info['spi_status'] = True
+                
+                return ch1_mv, ch2_mv
+                
         except Exception as e:
             self.debug_info['last_error'] = f"Read error: {str(e)}"
-            return None
-
-    def _read_raw_data(self):
-        if GPIO.input(Configuration.DRDY_PIN) == 0:  # DRDY is active LOW
-            self.debug_info['drdy_status'] = True
-            
-            # Read data
-            GPIO.output(Configuration.CS_PIN, GPIO.LOW)
-            # Read 9 bytes (status + 24-bit for each channel)
-            data = self.spi.xfer2([0x00] * 9)
-            GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
-            
-            self.debug_info['raw_data'] = [hex(x) for x in data]
-            
-            # Check status byte
-            status = data[0]
-            if status == 0xFF:
-                self.debug_info['last_error'] = "Communication error - check SPI connections"
-                return None
-                
-            if status & 0xF0:
-                self.debug_info['last_error'] = f"Device error: {hex(status)}"
-                return None
-            
-            # Convert data
-            ch1 = self._convert_24bit_to_int(data[3:6]) * 2.42 / 0x7FFFFF
-            ch2 = self._convert_24bit_to_int(data[6:9]) * 2.42 / 0x7FFFFF
-            
-            self.debug_info['signal_quality'] = self.check_signal_quality(ch1)
-            self.debug_info['spi_status'] = True
-            
-            return ch1, ch2
-        else:
-            self.debug_info['drdy_status'] = False
+            self.debug_info['spi_status'] = False
             return None
 
     def _process_and_store_data(self, data):
@@ -391,6 +376,16 @@ def get_data():
             'filtered-ch1-chart': list(ecg_system.signal_buffers['filtered_ch1'])[-100:],
             'filtered-ch2-chart': list(ecg_system.signal_buffers['filtered_ch2'])[-100:]
         })
+
+@app.route('/api/raw-signals')
+def get_raw_signals():
+    return jsonify({
+        'drdy': GPIO.input(Configuration.DRDY_PIN),
+        'mosi': GPIO.input(Configuration.MOSI_PIN),
+        'miso': GPIO.input(Configuration.MISO_PIN),
+        'sck': GPIO.input(Configuration.SCK_PIN),
+        'cs': GPIO.input(Configuration.CS_PIN)
+    })
 
 def data_collection_thread():
     while True:
