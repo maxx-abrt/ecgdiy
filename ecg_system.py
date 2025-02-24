@@ -30,25 +30,7 @@ class ECGSystem:
         self.spi.bits_per_word = 8
         self.spi.lsbfirst = False
         
-        self.data_buffer = deque(maxlen=5000)
-        self.heart_rate_buffer = deque(maxlen=10)
-        self.data_lock = Lock()
-        
-        self.last_peak_time = time.time()
-        self.heart_rate = 0
-        self.setup_gpio()
-        self.initialize_ads1292r()
-        
-        # Statistiques système
-        self.system_stats = {
-            'cpu_temp': 0,
-            'cpu_usage': 0,
-            'memory_usage': 0,
-            'start_time': datetime.datetime.now(),
-            'samples_collected': 0
-        }
-
-        # After existing system_stats initialization
+        # Initialize debug_info first
         self.debug_info = {
             'raw_data': [],
             'spi_status': False,
@@ -57,6 +39,26 @@ class ECGSystem:
             'last_error': None,
             'signal_quality': 'Unknown'
         }
+        
+        self.data_buffer = deque(maxlen=5000)
+        self.heart_rate_buffer = deque(maxlen=10)
+        self.data_lock = Lock()
+        
+        self.last_peak_time = time.time()
+        self.heart_rate = 0
+        
+        # System stats initialization
+        self.system_stats = {
+            'cpu_temp': 0,
+            'cpu_usage': 0,
+            'memory_usage': 0,
+            'start_time': datetime.datetime.now(),
+            'samples_collected': 0
+        }
+        
+        # Initialize hardware after all variables are set
+        self.setup_gpio()
+        self.initialize_ads1292r()
 
     def get_cpu_temperature(self):
         try:
