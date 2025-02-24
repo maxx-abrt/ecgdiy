@@ -33,6 +33,7 @@ class ECGSystem:
         self.spi.lsbfirst = False
         self.spi.cshigh = False         # CS active low
         
+        
         # Initialize debug_info first
         self.debug_info = {
             'raw_data': [],
