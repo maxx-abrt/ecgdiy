@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ECG Monitoring Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/@mdi/font@7.2.96/css/materialdesignicons.min.css" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
+    <style>
+        :root {
+            --bg-dark: #121212;
+            --bg-card: #1e1e1e;
+            --text-primary: #ffffff;
+            --accent: #00ff88;
+        }
+        
+        body { background: var(--bg-dark); color: var(--text-primary); }
+        .card { background: var(--bg-card); border: 1px solid #2d2d2d; }
+        .status-indicator { width: 12px; height: 12px; border-radius: 50%; }
+        .status-active { background: #00ff88; box-shadow: 0 0 8px #00ff8880; }
+    </style>
+</head>
+<body>
+    <div class="container-fluid vh-100 d-flex flex-column">
+        <!-- Header -->
+        <div class="row py-3 border-bottom border-secondary">
+            <div class="col d-flex align-items-center gap-3">
+                <h3 class="mb-0"><i class="mdi mdi-heart-pulse mr-2"></i>ECG Monitor</h3>
+                <div class="status-indicator" id="systemStatus"></div>
+                <div id="errorAlert" class="alert alert-danger d-none"></div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="row flex-grow-1 overflow-hidden">
+            <!-- Visualization -->
+            <div class="col-md-9 h-100 d-flex flex-column">
+                <div class="card h-100 m-3">
+                    <div class="card-body">
+                        <div id="ecgChart" class="h-100"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Control Panel -->
+            <div class="col-md-3 h-100 d-flex flex-column">
+                <div class="card m-3">
+                    <div class="card-header">Controls</div>
+                    <div class="card-body d-grid gap-2">
+                        <button id="startBtn" class="btn btn-success">
+                            <i class="mdi mdi-play"></i> Start
+                        </button>
+                        <button id="stopBtn" class="btn btn-danger">
+                            <i class="mdi mdi-stop"></i> Stop
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="card m-3">
+                    <div class="card-header">System Status</div>
+                    <div class="card-body">
+                        <dl class="row">
+                            <dt class="col-6">Sample Rate</dt>
+                            <dd class="col-6" id="sampleRate">--</dd>
+                            
+                            <dt class="col-6">Heart Rate</dt>
+                            <dd class="col-6" id="heartRate">--</dd>
+                            
+                            <dt class="col-6">Buffer Level</dt>
+                            <dd class="col-6" id="bufferLevel">--</dd>
+                            
+                            <dt class="col-6">Latency</dt>
+                            <dd class="col-6" id="processingLatency">--</dd>
+                        </dl>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+    <script>
+        const socket = io();
+        let ecgData = [];
+        const maxPoints = 2000;
+        let plot;
+        
+        // Initialize Plotly
+        function initChart() {
+            const layout = {
+                margin: { t: 30, b: 30 },
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                xaxis: { title: 'Time (s)', color: '#fff' },
+                yaxis: { title: 'Amplitude (mV)', color: '#fff' },
+                showlegend: false
+            };
+            
+            plot = Plotly.newPlot('ecgChart', [{
+                y: [],
+                mode: 'lines',
+                line: { color: '#00ff88' }
+            }], layout);
+        }
+
+               // Update system status
+               function updateSystemStatus(data) {
+                // Update metrics
+                document.getElementById('sampleRate').textContent = `${data.sample_rate} SPS`;
+                document.getElementById('heartRate').textContent = `${data.heart_rate} BPM`;
+                document.getElementById('bufferLevel').textContent = `${data.buffer_usage}%`;
+                document.getElementById('processingLatency').textContent = `${data.latency}ms`;
+    
+                // Update status indicator
+                const statusIndicator = document.getElementById('systemStatus');
+                statusIndicator.className = `status-indicator ${data.active ? 'status-active' : ''}`;
+            }
+    
+            // Handle incoming ECG data
+            socket.on('ecg_update', (data) => {
+                // Update ECG plot
+                ecgData = [...ecgData.slice(-maxPoints + 1), data.value];
+                
+                Plotly.update('ecgChart', {
+                    y: [ecgData],
+                    x: [Array.from({length: ecgData.length}, (_, i) => i / data.sample_rate)]
+                });
+    
+                // Update system metrics
+                updateSystemStatus({
+                    sample_rate: data.sample_rate,
+                    heart_rate: calculateHeartRate(ecgData),
+                    buffer_usage: Math.round((ecgData.length / maxPoints) * 100),
+                    latency: data.processing_latency,
+                    active: true
+                });
+            });
+    
+            // Handle system alerts
+            socket.on('system_alert', (alert) => {
+                const errorDiv = document.getElementById('errorAlert');
+                errorDiv.textContent = `ALERT: ${alert.message}`;
+                errorDiv.classList.remove('d-none');
+                setTimeout(() => errorDiv.classList.add('d-none'), 5000);
+            });
+    
+            // Connection management
+            socket.on('connect', () => {
+                console.log('Connected to server');
+                document.getElementById('systemStatus').classList.add('status-active');
+            });
+    
+            socket.on('disconnect', () => {
+                console.log('Disconnected from server');
+                document.getElementById('systemStatus').classList.remove('status-active');
+            });
+    
+            // Control handlers
+            document.getElementById('startBtn').addEventListener('click', () => {
+                socket.emit('control', 'start');
+                ecgData = [];  // Reset data on new start
+            });
+    
+            document.getElementById('stopBtn').addEventListener('click', () => {
+                socket.emit('control', 'stop');
+            });
+    
+            // Heart rate calculation (simplified)
+            function calculateHeartRate(signal) {
+                const thresholds = {
+                    high: Math.max(...signal.slice(-500)) * 0.8,
+                    low: Math.min(...signal.slice(-500)) * 1.2
+                };
+                
+                const peaks = signal.filter(v => v > thresholds.high).length;
+                return Math.round((peaks / 5) * 60);  // Approx BPM
+            }
+    
+            // Initialize on load
+            initChart();
+            
+            // Export functionality
+            function exportData() {
+                const csvContent = "Time,ECG Value\n" + 
+                    ecgData.map((v, i) => 
+                        `${(i / 500).toFixed(3)},${v.toFixed(3)}`
+                    ).join("\n");
+                
+                const blob = new Blob([csvContent], { type: 'text/csv' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'ecg_data.csv';
+                a.click();
+            }
+    
+            // Add export button (dynamically if missing)
+            if (!document.getElementById('exportBtn')) {
+                const exportBtn = document.createElement('button');
+                exportBtn.id = 'exportBtn';
+                exportBtn.className = 'btn btn-info mt-2';
+                exportBtn.innerHTML = '<i class="mdi mdi-download"></i> Export';
+                exportBtn.onclick = exportData;
+                document.querySelector('.card-body.d-grid').appendChild(exportBtn);
+            }
+        </script>
+    </body>
+    </html>

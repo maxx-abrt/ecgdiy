@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Live ECG Monitor</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #1a1a1a;
+            --card-bg: #2d2d2d;
+            --text-color: #ffffff;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            margin: 10px;
+        }
+
+        .plot-container {
+            height: 400px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row p-3">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h4>ECG Live View</h4>
+                        <div class="btn-group">
+                            <button id="startBtn" class="btn btn-success">Start</button>
+                            <button id="stopBtn" class="btn btn-danger">Stop</button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div id="ecgPlot" class="plot-container"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h4>Signal Analysis</h4>
+                    </div>
+                    <div class="card-body">
+                        <div id="stats">
+                            <p>Heart Rate: <span id="heartRate">--</span> BPM</p>
+                            <p>Noise Level: <span id="noiseLevel">--</span> μV</p>
+                        </div>
+                        <hr>
+                        <div id="controls">
+                            <label>Gain: <input type="number" id="gain" value="6" min="1" max="12"></label>
+                            <label>Sample Rate: 
+                                <select id="sampleRate">
+                                    <option value="125">125 SPS</option>
+                                    <option value="250">250 SPS</option>
+                                    <option value="500" selected>500 SPS</option>
+                                </select>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+    <script>
+        const socket = io();
+        let ecgData = [];
+        const maxPoints = 1000;
+        let plot;
+
+        // Initialize Plotly
+        function initPlot() {
+            const layout = {
+                title: 'ECG Signal',
+                showlegend: false,
+                margin: { t: 40, b: 40 },
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                font: { color: '#fff' },
+                xaxis: { title: 'Time (s)' },
+                yaxis: { title: 'Voltage (mV)' }
+            };
+
+            plot = Plotly.newPlot('ecgPlot', [{
+                y: [],
+                type: 'scattergl',
+                line: { color: '#00ff88' }
+            }], layout);
+        }
+
+        // Update plot with new data
+        function updatePlot(data) {
+            ecgData = [...ecgData.slice(-maxPoints + data.length), ...data];
+            
+            Plotly.update('ecgPlot', {
+                y: [ecgData],
+                x: [Array.from({length: ecgData.length}, (_, i) => i/500)]
+            });
+        }
+
+        // Socket.io handlers
+        socket.on('ecg_update', (data) => {
+            updatePlot(data.buffer);
+            document.getElementById('heartRate').textContent = 
+                Math.round(calculateHeartRate(data.buffer));
+        });
+
+        socket.on('connect_error', () => {
+            showError('Connection to server failed');
+        });
+
+        // Control handlers
+        document.getElementById('startBtn').addEventListener('click', () => {
+            socket.emit('control', 'start');
+        });
+
+        document.getElementById('stopBtn').addEventListener('click', () => {
+            socket.emit('control', 'stop');
+        });
+
+        // Initialize
+        initPlot();
+
+        // Utility functions
+        function calculateHeartRate(signal) {
+            // Add heart rate calculation logic
+            return 60 + Math.random() * 20; // Placeholder
+        }
+
+        function showError(message) {
+            const alert = document.createElement('div');
+            alert.className = 'alert alert-danger';
+            alert.textContent = message;
+            document.body.prepend(alert);
+            setTimeout(() => alert.remove(), 5000);
+        }
+    </script>
+</body>
+</html>

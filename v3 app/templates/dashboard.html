@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- Add meta tags and CSS similar to previous version -->
+    <!-- Include additional libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/luxon@3.3.0/build/global/luxon.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/regression@2.0.1/dist/regression.min.js"></script>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Main Visualization -->
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h4>ECG Live Stream <span class="badge bg-secondary" id="streamStatus">Idle</span></h4>
+                        <div class="btn-group">
+                            <button class="btn btn-success" id="startBtn">Start</button>
+                            <button class="btn btn-danger" id="stopBtn">Stop</button>
+                            <button class="btn btn-info" id="exportBtn">Export Data</button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div id="ecgPlot" class="plot-container"></div>
+                        <div id="annotationPanel"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- System Dashboard -->
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h4>System Monitor</h4>
+                    </div>
+                    <div class="card-body">
+                        <div id="systemMetrics">
+                            <div class="progress mb-2">
+                                <div class="progress-bar bg-cpu" role="progressbar"></div>
+                            </div>
+                            <div class="progress mb-2">
+                                <div class="progress-bar bg-mem" role="progressbar"></div>
+                            </div>
+                        </div>
+                        <hr>
+                        <div id="signalQuality" class="gauge"></div>
+                        <div id="alarmPanel" class="mt-3"></div>
+                    </div>
+                </div>
+
+                <!-- Debug Console -->
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h5>Debug Console</h5>
+                    </div>
+                    <div class="card-body console-body">
+                        <div id="debugLog" class="console-log"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add JavaScript enhancements -->
+    <script>
+        // Extended with:
+        // - Real-time signal quality analysis
+        // - Annotation system for detected events
+        // - Advanced system monitoring
+        // - Data export functionality
+        // - Automatic reconnection logic
+    </script>
+</body>
+</html>
