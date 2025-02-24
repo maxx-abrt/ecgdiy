@@ -27,10 +27,11 @@ class ECGSystem:
         # SPI setup
         self.spi = spidev.SpiDev()
         self.spi.open(0, 0)
-        self.spi.max_speed_hz = 1000000  # 1MHz
+        self.spi.max_speed_hz = 500000  # Reduced to 500kHz
         self.spi.mode = 1                # CPOL=0, CPHA=1
         self.spi.bits_per_word = 8
         self.spi.lsbfirst = False
+        self.spi.cshigh = False         # CS active low
         
         # Initialize debug_info first
         self.debug_info = {
@@ -108,24 +109,28 @@ class ECGSystem:
         GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
         
     def initialize_ads1292r(self):
-        # Reset sequence
+        # Reset sequence plus strict
         GPIO.output(Configuration.START_PIN, GPIO.LOW)
+        GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
+        time.sleep(0.1)
+        
+        # Reset pulse
         GPIO.output(Configuration.PWDN_PIN, GPIO.LOW)
         time.sleep(0.1)
         GPIO.output(Configuration.PWDN_PIN, GPIO.HIGH)
-        time.sleep(0.1)
+        time.sleep(0.1)  # Wait for device to stabilize
         
-        # Send SDATAC command (Stop Read Data Continuous mode)
+        # Send SDATAC command with verification
         GPIO.output(Configuration.CS_PIN, GPIO.LOW)
         self.spi.xfer2([0x11])  # SDATAC command
         GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
         time.sleep(0.01)
         
-        # Configuration des registres avec vérification
+        # Configuration des registres avec vérification stricte
         configs = [
             (0x01, 0x03),  # CONFIG1: 1kSPS, continuous mode
-            (0x02, 0xE0),  # CONFIG2: Test signals enabled
-            (0x03, 0xF0),  # LOFF: Lead-off detection off
+            (0x02, 0xA0),  # CONFIG2: Internal test signal
+            (0x03, 0xE0),  # LOFF: Lead-off comp off, DC lead-off
             (0x04, 0x60),  # CH1SET: PGA gain 6, test signal
             (0x05, 0x60),  # CH2SET: PGA gain 6, test signal
             (0x06, 0x2C),  # RLD_SENS
@@ -134,23 +139,39 @@ class ECGSystem:
         ]
         
         for addr, value in configs:
-            # Write register
-            GPIO.output(Configuration.CS_PIN, GPIO.LOW)
-            self.spi.xfer2([self.WREG | addr, 0x00, value])
-            time.sleep(0.001)
-            GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
-            time.sleep(0.001)
+            retry_count = 0
+            while retry_count < 3:  # Try up to 3 times for each register
+                # Write register
+                GPIO.output(Configuration.CS_PIN, GPIO.LOW)
+                time.sleep(0.001)  # Add small delay
+                self.spi.xfer2([self.WREG | addr, 0x00, value])
+                time.sleep(0.001)  # Add small delay
+                GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
+                time.sleep(0.001)
+                
+                # Verify register
+                GPIO.output(Configuration.CS_PIN, GPIO.LOW)
+                time.sleep(0.001)
+                read_data = self.spi.xfer2([0x20 | addr, 0x00, 0x00])
+                time.sleep(0.001)
+                GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
+                
+                if read_data[2] == value:
+                    break
+                retry_count += 1
+                time.sleep(0.01)  # Wait before retry
             
-            # Verify register
-            GPIO.output(Configuration.CS_PIN, GPIO.LOW)
-            read_data = self.spi.xfer2([0x20 | addr, 0x00, 0x00])
-            GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
-            
-            if read_data[2] != value:
-                self.debug_info['last_error'] = f"Register write failed - {hex(addr)}: expected {hex(value)}, got {hex(read_data[2])}"
+            if retry_count == 3:
+                self.debug_info['last_error'] = f"Register write failed after 3 attempts - {hex(addr)}: expected {hex(value)}, got {hex(read_data[2])}"
                 return False
         
-        # Send RDATAC command (Read Data Continuous mode)
+        # Send START command
+        GPIO.output(Configuration.CS_PIN, GPIO.LOW)
+        self.spi.xfer2([0x08])  # START command
+        GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
+        time.sleep(0.01)
+        
+        # Send RDATAC command
         GPIO.output(Configuration.CS_PIN, GPIO.LOW)
         self.spi.xfer2([0x10])  # RDATAC command
         GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
