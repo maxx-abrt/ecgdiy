@@ -31,10 +31,10 @@ class ECGSystem:
         self.spi.mode = 1
         
         self.signal_buffers = {
-            'raw_ch1': deque(maxlen=1000),
-            'raw_ch2': deque(maxlen=1000),
-            'filtered_ch1': deque(maxlen=1000),
-            'filtered_ch2': deque(maxlen=1000)
+            'raw_ch1': deque(maxlen=5000),
+            'raw_ch2': deque(maxlen=5000),
+            'filtered_ch1': deque(maxlen=5000),
+            'filtered_ch2': deque(maxlen=5000)
         }
         
         # Coefficients de filtrage (repris du code Arduino)
@@ -80,10 +80,7 @@ class ECGSystem:
             'samples_collected': 0
         }
         
-        # Initialize hardware after all variables are set
-        self.setup_gpio()
-        self.initialize_ads1292r()
-        
+        # Initialisation de debug_info
         self.debug_info = {
             'raw_data': [],
             'spi_status': False,
@@ -92,6 +89,10 @@ class ECGSystem:
             'last_error': None,
             'signal_quality': 'Unknown'
         }
+        
+        # Initialize hardware after all variables are set
+        self.setup_gpio()
+        self.initialize_ads1292r()
 
     def get_cpu_temperature(self):
         try:
