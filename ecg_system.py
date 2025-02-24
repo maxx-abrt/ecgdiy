@@ -323,6 +323,26 @@ class ECGSystem:
         success2 = self._write_verify_register(0x05, self.gain_settings[gain])
         return success1 and success2
 
+    def detect_qrs_and_calculate_hr(self, filtered_data):
+        # Implémentation simple de la détection QRS
+        threshold = 0.5  # Ajustez ce seuil selon vos besoins
+        peaks = []
+
+        for i in range(1, len(filtered_data) - 1):
+            if filtered_data[i] > threshold and filtered_data[i] > filtered_data[i - 1] and filtered_data[i] > filtered_data[i + 1]:
+                peaks.append(i)
+
+        # Calculer le rythme cardiaque basé sur les pics détectés
+        if len(peaks) > 1:
+            intervals = np.diff(peaks)  # Intervalles entre les pics
+            if len(intervals) > 0:
+                avg_interval = np.mean(intervals) * 0.002  # Convertir en secondes (500Hz)
+                if avg_interval > 0:
+                    self.heart_rate = 60 / avg_interval  # Calculer le rythme cardiaque
+                    self.heart_rate_buffer.append(self.heart_rate)
+                    if len(self.heart_rate_buffer) > 10:
+                        self.heart_rate_buffer.popleft()  # Limiter la taille du buffer
+
 # Application Flask
 app = Flask(__name__)
 CORS(app, resources={
