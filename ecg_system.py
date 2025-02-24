@@ -307,11 +307,24 @@ class ECGSystem:
             return None
 
     def _process_and_store_data(self, data):
+        if data is None:
+            return
+        
         ch1, ch2 = data
         with self.data_lock:
+            # Stockage des données brutes
             self.signal_buffers['raw_ch1'].append(ch1)
             self.signal_buffers['raw_ch2'].append(ch2)
-            # Ajout de filtres et calculs supplémentaires...
+            
+            # Filtrage simple (moyenne mobile)
+            filtered_ch1 = np.mean(list(self.signal_buffers['raw_ch1'])[-10:])
+            filtered_ch2 = np.mean(list(self.signal_buffers['raw_ch2'])[-10:])
+            
+            self.signal_buffers['filtered_ch1'].append(filtered_ch1)
+            self.signal_buffers['filtered_ch2'].append(filtered_ch2)
+            
+            # Calcul du rythme cardiaque
+            self.calculate_heart_rate(filtered_ch1)
 
     def _convert_24bit_to_int(self, data_bytes):
         # Conversion des données 24-bit en entier signé
@@ -370,13 +383,13 @@ def set_gain_route(gain):
 
 @app.route('/api/data')
 def get_data():
-    return jsonify({
-        'raw_ch1': list(ecg_system.signal_buffers['raw_ch1']),
-        'raw_ch2': list(ecg_system.signal_buffers['raw_ch2']),
-        'filtered_ch1': list(ecg_system.signal_buffers['filtered_ch1']),
-        'filtered_ch2': list(ecg_system.signal_buffers['filtered_ch2']),
-        'timestamp': time.time()
-    })
+    with ecg_system.data_lock:
+        return jsonify({
+            'raw_ch1': list(ecg_system.signal_buffers['raw_ch1']),
+            'raw_ch2': list(ecg_system.signal_buffers['raw_ch2']),
+            'filtered_ch1': list(ecg_system.signal_buffers['filtered_ch1']),
+            'filtered_ch2': list(ecg_system.signal_buffers['filtered_ch2'])
+        })
 
 def data_collection_thread():
     while True:

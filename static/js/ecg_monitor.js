@@ -9,33 +9,54 @@ function initializeCharts() {
     const chartConfigs = {
         'raw-ch1': {
             title: 'Canal 1 (Raw)',
-            yaxis: { range: [-2, 2] }
+            yaxis: { range: [-2, 2], title: 'Voltage (mV)' }
         },
         'raw-ch2': {
             title: 'Canal 2 (Raw)',
-            yaxis: { range: [-2, 2] }
+            yaxis: { range: [-2, 2], title: 'Voltage (mV)' }
         },
         'filtered-ch1': {
-            title: 'Canal 1 (Filtered)',
-            yaxis: { range: [-2, 2] }
+            title: 'Canal 1 (Filtré)',
+            yaxis: { range: [-2, 2], title: 'Voltage (mV)' }
         },
         'filtered-ch2': {
-            title: 'Canal 2 (Filtered)',
-            yaxis: { range: [-2, 2] }
+            title: 'Canal 2 (Filtré)',
+            yaxis: { range: [-2, 2], title: 'Voltage (mV)' }
         }
     };
 
-    Object.entries(chartConfigs).forEach(([id, config]) => {
-        charts[id] = createChart(id, config);
-    });
+    for (const [id, config] of Object.entries(chartConfigs)) {
+        const layout = {
+            title: config.title,
+            height: 250,
+            margin: { t: 30, b: 30, l: 50, r: 20 },
+            yaxis: config.yaxis,
+            xaxis: { 
+                title: 'Temps (s)',
+                showgrid: true
+            },
+            showlegend: false,
+            plot_bgcolor: '#f8f9fa',
+            paper_bgcolor: '#f8f9fa'
+        };
+
+        charts[id] = Plotly.newPlot(id, [{
+            y: [],
+            type: 'scatter',
+            mode: 'lines',
+            line: { color: '#2196F3', width: 1.5 }
+        }], layout);
+    }
 }
 
 function updateCharts(data) {
-    Object.entries(charts).forEach(([id, chart]) => {
-        Plotly.extendTraces(id, {
-            y: [[data[id]]]
-        }, [0], 1000);
-    });
+    for (const [id, chart] of Object.entries(charts)) {
+        if (data[id]) {
+            Plotly.extendTraces(id, {
+                y: [[data[id]]]
+            }, [0], 1000);
+        }
+    }
 }
 
 function updateData() {
