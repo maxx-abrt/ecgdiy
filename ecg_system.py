@@ -19,6 +19,7 @@ class Configuration:
     PWDN_PIN = 27  # GPIO27 (Pin 13)
     START_PIN = 22 # GPIO22 (Pin 15)
 
+
 class ECGSystem:
     WREG = 0x40  # Define WREG as 0x40
 
