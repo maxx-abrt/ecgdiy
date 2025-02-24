@@ -1,3 +1,6 @@
+let isRecording = false;
+let updateInterval;
+
 const charts = {
     'raw-ch1-chart': null,
     'raw-ch2-chart': null,
@@ -108,8 +111,16 @@ function updateDebugInfo() {
 
 function toggleRecording() {
     isRecording = !isRecording;
+    const recordButton = document.querySelector('#record-button');
+    
     if (isRecording) {
-        updateData();
+        recordButton.textContent = 'Arrêter';
+        recordButton.classList.replace('btn-primary', 'btn-danger');
+        updateInterval = setInterval(updateData, 100);
+    } else {
+        recordButton.textContent = 'Démarrer';
+        recordButton.classList.replace('btn-danger', 'btn-primary');
+        clearInterval(updateInterval);
     }
 }
 
@@ -137,10 +148,18 @@ function setGain(gain) {
         });
 }
 
-// Initialize
-document.addEventListener('DOMContentLoaded', () => {
+function initializeApp() {
     initializeCharts();
-    setInterval(updateData, 20);  // 50Hz update rate
-    setInterval(updateSystemStats, 1000);  // 1Hz system stats update
+    
+    // Démarrer les mises à jour périodiques
+    setInterval(updateSystemStats, 2000);
     setInterval(updateDebugInfo, 1000);
-}); 
+    
+    // Gestionnaire d'erreurs global pour fetch
+    window.addEventListener('unhandledrejection', function(event) {
+        console.error('Erreur de promesse non gérée:', event.reason);
+    });
+}
+
+// Initialisation au chargement de la page
+document.addEventListener('DOMContentLoaded', initializeApp); 

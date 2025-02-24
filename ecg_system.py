@@ -8,6 +8,7 @@ from threading import Thread, Lock
 import psutil
 import datetime
 from collections import deque
+from flask_cors import CORS
 
 # Configuration des broches selon Data.txt aand ext
 class Configuration:
@@ -344,6 +345,7 @@ class ECGSystem:
 
 # Application Flask
 app = Flask(__name__)
+CORS(app)
 ecg_system = ECGSystem()
 
 @app.route('/')
