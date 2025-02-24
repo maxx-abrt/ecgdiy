@@ -23,10 +23,11 @@ class ECGSystem:
     WREG = 0x40  # Define WREG as 0x40
 
     def __init__(self):
+        # SPI setup
         self.spi = spidev.SpiDev()
         self.spi.open(0, 0)
-        self.spi.max_speed_hz = 500000  # Réduire la vitesse
-        self.spi.mode = 1
+        self.spi.max_speed_hz = 1000000  # 1MHz
+        self.spi.mode = 1                # CPOL=0, CPHA=1
         self.spi.bits_per_word = 8
         self.spi.lsbfirst = False
         
@@ -106,42 +107,59 @@ class ECGSystem:
         GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
         
     def initialize_ads1292r(self):
-        # Reset plus long
-        GPIO.output(Configuration.PWDN_PIN, GPIO.LOW)
-        time.sleep(0.5)  # Augmenter le temps de reset
-        GPIO.output(Configuration.PWDN_PIN, GPIO.HIGH)
-        time.sleep(0.5)  # Attendre la stabilisation
-        
-        # Vérification de la communication
+        # Reset sequence
         GPIO.output(Configuration.START_PIN, GPIO.LOW)
+        GPIO.output(Configuration.PWDN_PIN, GPIO.LOW)
         time.sleep(0.1)
+        GPIO.output(Configuration.PWDN_PIN, GPIO.HIGH)
+        time.sleep(0.1)
+        
+        # Send SDATAC command (Stop Read Data Continuous mode)
+        GPIO.output(Configuration.CS_PIN, GPIO.LOW)
+        self.spi.xfer2([0x11])  # SDATAC command
+        GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
+        time.sleep(0.01)
         
         # Configuration des registres avec vérification
         configs = [
-            (0x01, 0x00),  # CONFIG1: HR mode
-            (0x02, 0xE0),  # CONFIG2: Test signals
+            (0x01, 0x03),  # CONFIG1: 1kSPS, continuous mode
+            (0x02, 0xE0),  # CONFIG2: Test signals enabled
             (0x03, 0xF0),  # LOFF: Lead-off detection off
-            (0x04, 0x60),  # CH1SET: Gain 6, normal electrode input
-            (0x05, 0x60),  # CH2SET: Gain 6, normal electrode input
-            (0x06, 0x2C),  # RLD_SENS: RLD connected to positive side
-            (0x07, 0x00),  # LOFF_SENS: Lead-off detection disabled
-            (0x08, 0x00)   # LOFF_STAT: Lead-off status
+            (0x04, 0x60),  # CH1SET: PGA gain 6, test signal
+            (0x05, 0x60),  # CH2SET: PGA gain 6, test signal
+            (0x06, 0x2C),  # RLD_SENS
+            (0x07, 0x00),  # LOFF_SENS
+            (0x08, 0x00),  # LOFF_STAT
         ]
         
         for addr, value in configs:
-            self.write_register(addr, value)
-            # Vérification de l'écriture
+            # Write register
             GPIO.output(Configuration.CS_PIN, GPIO.LOW)
-            read_data = self.spi.xfer2([0x20 | addr, 0x00])  # 0x20 pour lire
+            self.spi.xfer2([self.WREG | addr, 0x00, value])
+            time.sleep(0.001)
+            GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
+            time.sleep(0.001)
+            
+            # Verify register
+            GPIO.output(Configuration.CS_PIN, GPIO.LOW)
+            read_data = self.spi.xfer2([0x20 | addr, 0x00, 0x00])
             GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
             
-            if read_data[1] != value:
-                self.debug_info['last_error'] = f"Erreur d'écriture registre {hex(addr)}: attendu {hex(value)}, lu {hex(read_data[1])}"
+            if read_data[2] != value:
+                self.debug_info['last_error'] = f"Register write failed - {hex(addr)}: expected {hex(value)}, got {hex(read_data[2])}"
+                return False
         
-        # Attendre la stabilisation
-        time.sleep(0.1)
-        # Démarrage des conversions
+        # Send RDATAC command (Read Data Continuous mode)
+        GPIO.output(Configuration.CS_PIN, GPIO.LOW)
+        self.spi.xfer2([0x10])  # RDATAC command
+        GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
+        time.sleep(0.01)
+        
+        # Start data conversion
         GPIO.output(Configuration.START_PIN, GPIO.HIGH)
+        time.sleep(0.1)
+        
+        return True
 
     def debug_registers(self):
         try:
@@ -180,36 +198,45 @@ class ECGSystem:
 
     def read_data(self):
         try:
-            self.debug_info['drdy_status'] = GPIO.input(Configuration.DRDY_PIN)
-            
-            if self.debug_info['drdy_status'] == 0:  # DRDY is active LOW
+            if GPIO.input(Configuration.DRDY_PIN) == 0:  # DRDY is active LOW
+                self.debug_info['drdy_status'] = True
+                
+                # Read data
                 GPIO.output(Configuration.CS_PIN, GPIO.LOW)
-                # Lire 9 octets: status + 24-bit pour chaque canal
+                # Read 9 bytes (status + 24-bit for each channel)
                 data = self.spi.xfer2([0x00] * 9)
                 GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
                 
                 self.debug_info['raw_data'] = [hex(x) for x in data]
-                self.debug_info['spi_status'] = True
                 
-                # Vérification du status byte
+                # Check status byte
                 status = data[0]
-                if status & 0xF0:  # Bits d'erreur dans le status byte
-                    self.debug_info['last_error'] = f"Status error: {hex(status)}"
+                if status == 0xFF:
+                    self.debug_info['last_error'] = "Communication error - check SPI connections"
+                    return None, None
+                    
+                if status & 0xF0:
+                    self.debug_info['last_error'] = f"Device error: {hex(status)}"
+                    return None, None
                 
-                # Conversion des données avec signe
+                # Convert data
                 ch1 = self._convert_24bit_to_int(data[3:6]) * 2.42 / 0x7FFFFF
                 ch2 = self._convert_24bit_to_int(data[6:9]) * 2.42 / 0x7FFFFF
                 
                 self.debug_info['signal_quality'] = self.check_signal_quality(ch1)
+                self.debug_info['spi_status'] = True
                 
                 with self.data_lock:
                     self.data_buffer.append(ch1)
                     self.calculate_heart_rate(ch1)
                 
                 return ch1, ch2
+            else:
+                self.debug_info['drdy_status'] = False
+                return None, None
             
         except Exception as e:
-            self.debug_info['last_error'] = str(e)
+            self.debug_info['last_error'] = f"Read error: {str(e)}"
             self.debug_info['spi_status'] = False
             return None, None
 
