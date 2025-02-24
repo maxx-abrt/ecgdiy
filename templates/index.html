@@ -50,26 +50,49 @@
         .status-inactive {
             background-color: #dc3545;
         }
+        .chart-container {
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .ecg-chart {
+            height: 300px;
+            width: 100%;
+        }
     </style>
 </head>
 <body>
     <div class="container-fluid">
         <div class="row">
             <div class="col-md-9">
-                <div class="row">
-                    <div class="col-md-6">
-                        <div class="ecg-container" id="raw-ch1-chart"></div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="ecg-container" id="raw-ch2-chart"></div>
+                <div class="row mb-3">
+                    <div class="col-12">
+                        <div class="chart-container">
+                            <div id="raw-ch1-chart" class="ecg-chart"></div>
+                        </div>
                     </div>
                 </div>
-                <div class="row">
-                    <div class="col-md-6">
-                        <div class="ecg-container" id="filtered-ch1-chart"></div>
+                <div class="row mb-3">
+                    <div class="col-12">
+                        <div class="chart-container">
+                            <div id="raw-ch2-chart" class="ecg-chart"></div>
+                        </div>
                     </div>
-                    <div class="col-md-6">
-                        <div class="ecg-container" id="filtered-ch2-chart"></div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-12">
+                        <div class="chart-container">
+                            <div id="filtered-ch1-chart" class="ecg-chart"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-12">
+                        <div class="chart-container">
+                            <div id="filtered-ch2-chart" class="ecg-chart"></div>
+                        </div>
                     </div>
                 </div>
             </div>

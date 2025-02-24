@@ -1,25 +1,25 @@
 const charts = {
-    'raw-ch1': null,
-    'raw-ch2': null,
-    'filtered-ch1': null,
-    'filtered-ch2': null
+    'raw-ch1-chart': null,
+    'raw-ch2-chart': null,
+    'filtered-ch1-chart': null,
+    'filtered-ch2-chart': null
 };
 
 function initializeCharts() {
     const chartConfigs = {
-        'raw-ch1': {
+        'raw-ch1-chart': {
             title: 'Canal 1 (Raw)',
             yaxis: { range: [-2, 2], title: 'Voltage (mV)' }
         },
-        'raw-ch2': {
+        'raw-ch2-chart': {
             title: 'Canal 2 (Raw)',
             yaxis: { range: [-2, 2], title: 'Voltage (mV)' }
         },
-        'filtered-ch1': {
+        'filtered-ch1-chart': {
             title: 'Canal 1 (Filtré)',
             yaxis: { range: [-2, 2], title: 'Voltage (mV)' }
         },
-        'filtered-ch2': {
+        'filtered-ch2-chart': {
             title: 'Canal 2 (Filtré)',
             yaxis: { range: [-2, 2], title: 'Voltage (mV)' }
         }
@@ -28,8 +28,8 @@ function initializeCharts() {
     for (const [id, config] of Object.entries(chartConfigs)) {
         const layout = {
             title: config.title,
-            height: 250,
-            margin: { t: 30, b: 30, l: 50, r: 20 },
+            height: 300,
+            margin: { t: 40, b: 40, l: 60, r: 20 },
             yaxis: config.yaxis,
             xaxis: { 
                 title: 'Temps (s)',
@@ -40,7 +40,7 @@ function initializeCharts() {
             paper_bgcolor: '#f8f9fa'
         };
 
-        charts[id] = Plotly.newPlot(id, [{
+        Plotly.newPlot(id, [{
             y: [],
             type: 'scatter',
             mode: 'lines',
