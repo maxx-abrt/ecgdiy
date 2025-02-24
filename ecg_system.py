@@ -46,6 +46,16 @@ class ECGSystem:
             'samples_collected': 0
         }
 
+        # After existing system_stats initialization
+        self.debug_info = {
+            'raw_data': [],
+            'spi_status': False,
+            'drdy_status': False,
+            'register_values': {},
+            'last_error': None,
+            'signal_quality': 'Unknown'
+        }
+
     def get_cpu_temperature(self):
         try:
             with open('/sys/class/thermal/thermal_zone0/temp', 'r') as temp_file:
@@ -111,24 +121,69 @@ class ECGSystem:
         # Démarrage des conversions
         GPIO.output(Configuration.START_PIN, GPIO.HIGH)
         
+    def debug_registers(self):
+        try:
+            # Lecture des registres importants
+            registers_to_check = {
+                'CONFIG1': 0x01,
+                'CONFIG2': 0x02,
+                'LOFF': 0x03,
+                'CH1SET': 0x04,
+                'CH2SET': 0x05,
+                'RLD_SENS': 0x06
+            }
+            
+            for name, addr in registers_to_check.items():
+                GPIO.output(Configuration.CS_PIN, GPIO.LOW)
+                data = self.spi.xfer2([0x20 | addr, 0x00])  # 0x20 pour lire
+                GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
+                self.debug_info['register_values'][name] = hex(data[1])
+                
+            return True
+        except Exception as e:
+            self.debug_info['last_error'] = str(e)
+            return False
+
+    def check_signal_quality(self, data_sample):
+        if data_sample is None:
+            return "Pas de signal"
+        
+        # Vérification de la plage du signal
+        if abs(data_sample) < 0.1:
+            return "Signal faible"
+        elif abs(data_sample) > 2.0:
+            return "Signal saturé"
+        
+        return "OK"
+
     def read_data(self):
-        if GPIO.input(Configuration.DRDY_PIN) == 0:
-            GPIO.output(Configuration.CS_PIN, GPIO.LOW)
-            data = self.spi.xfer2([0x00] * 9)
-            GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
+        try:
+            self.debug_info['drdy_status'] = GPIO.input(Configuration.DRDY_PIN)
             
-            # Conversion des données
-            status = data[0]
-            ch1 = ((data[3] << 16) | (data[4] << 8) | data[5]) * 2.42 / 0x7FFFFF
-            ch2 = ((data[6] << 16) | (data[7] << 8) | data[8]) * 2.42 / 0x7FFFFF
-            
-            with self.data_lock:
-                self.data_buffer.append(ch1)
-                if len(self.data_buffer) > 1000:
-                    self.data_buffer.pop(0)
-            
-            return ch1, ch2
-        return None, None
+            if self.debug_info['drdy_status'] == 0:
+                GPIO.output(Configuration.CS_PIN, GPIO.LOW)
+                data = self.spi.xfer2([0x00] * 9)
+                GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
+                
+                # Store raw data for debugging
+                self.debug_info['raw_data'] = data
+                self.debug_info['spi_status'] = True
+                
+                status = data[0]
+                ch1 = ((data[3] << 16) | (data[4] << 8) | data[5]) * 2.42 / 0x7FFFFF
+                ch2 = ((data[6] << 16) | (data[7] << 8) | data[8]) * 2.42 / 0x7FFFFF
+                
+                self.debug_info['signal_quality'] = self.check_signal_quality(ch1)
+                
+                with self.data_lock:
+                    self.data_buffer.append(ch1)
+                    self.calculate_heart_rate(ch1)
+                
+                return ch1, ch2
+        except Exception as e:
+            self.debug_info['last_error'] = str(e)
+            self.debug_info['spi_status'] = False
+            return None, None
 
 # Application Flask
 app = Flask(__name__)
@@ -151,6 +206,17 @@ def ecg_data():
             'heart_rate': ecg_system.heart_rate
         }
     return jsonify(data)
+
+@app.route('/api/debug-info')
+def debug_info():
+    ecg_system.debug_registers()
+    debug_data = {
+        'debug_info': ecg_system.debug_info,
+        'system_stats': ecg_system.system_stats,
+        'buffer_size': len(ecg_system.data_buffer),
+        'heart_rate_buffer': list(ecg_system.heart_rate_buffer)
+    }
+    return jsonify(debug_data)
 
 def data_collection_thread():
     while True:
