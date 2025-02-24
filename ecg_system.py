@@ -266,7 +266,6 @@ class ECGSystem:
                 data = self._read_raw_data()
                 if data:
                     self._process_and_store_data(data)
-                    self._log_data_to_file()
                 return data
         except Exception as e:
             self.debug_info['last_error'] = f"Read error: {str(e)}"
@@ -385,10 +384,10 @@ def set_gain_route(gain):
 def get_data():
     with ecg_system.data_lock:
         return jsonify({
-            'raw_ch1': list(ecg_system.signal_buffers['raw_ch1']),
-            'raw_ch2': list(ecg_system.signal_buffers['raw_ch2']),
-            'filtered_ch1': list(ecg_system.signal_buffers['filtered_ch1']),
-            'filtered_ch2': list(ecg_system.signal_buffers['filtered_ch2'])
+            'raw-ch1-chart': list(ecg_system.signal_buffers['raw_ch1'])[-100:],
+            'raw-ch2-chart': list(ecg_system.signal_buffers['raw_ch2'])[-100:],
+            'filtered-ch1-chart': list(ecg_system.signal_buffers['filtered_ch1'])[-100:],
+            'filtered-ch2-chart': list(ecg_system.signal_buffers['filtered_ch2'])[-100:]
         })
 
 def data_collection_thread():
