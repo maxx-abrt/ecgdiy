@@ -139,92 +139,75 @@ class ECGSystem:
         
     def initialize_ads1292r(self):
         try:
-            # Reset plus long et plus stable
-            GPIO.output(Configuration.START_PIN, GPIO.LOW)
-            GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
+            # Reset hardware complet
             GPIO.output(Configuration.PWDN_PIN, GPIO.LOW)
-            time.sleep(0.5)
-            
+            time.sleep(0.1)
             GPIO.output(Configuration.PWDN_PIN, GPIO.HIGH)
-            time.sleep(0.2)
+            time.sleep(0.1)
             
-            # Stop Data Continuous
+            # Stop data continuous
             GPIO.output(Configuration.CS_PIN, GPIO.LOW)
-            self.spi.xfer2([0x11])  # SDATAC
+            self.spi.xfer2([0x11])  # SDATAC command
             GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
             time.sleep(0.05)
             
-            # Configuration avec vérification et retry
-            configs = [
-                (0x01, 0x00),  # CONFIG1: HR mode
-                (0x02, 0x10),  # CONFIG2: Test signal disabled
-                (0x03, 0xE0),  # LOFF: Lead-off comp off
-                (0x04, self.gain_settings[self.current_gain]),  # CH1SET
-                (0x05, self.gain_settings[self.current_gain]),  # CH2SET
-                (0x06, 0x00),  # RLD_SENS off
+            # Configuration registres avec vérification
+            registers = [
+                (0x01, 0x00),  # CONFIG1: 125 SPS
+                (0x02, 0xA0),  # CONFIG2: Test signals disabled
+                (0x03, 0xE0),  # LOFF: Lead-off detection off
+                (0x04, 0x60),  # CH1SET: Gain 12, normal electrode input
+                (0x05, 0x60),  # CH2SET: Gain 12, normal electrode input
+                (0x06, 0x2C),  # RLD_SENS
                 (0x07, 0x00),  # LOFF_SENS
                 (0x08, 0x00),  # LOFF_STAT
-                (0x09, 0x02),  # RESP1
-                (0x0A, 0x03),  # RESP2
+                (0x09, 0xF2),  # RESP1: Resp modulation/demod enabled
+                (0x0A, 0x03)   # RESP2: Resp modulation frequency
             ]
             
-            for addr, value in configs:
-                for _ in range(5):  # 5 tentatives par registre
-                    if self._write_verify_register(addr, value):
+            for reg_addr, reg_value in registers:
+                for _ in range(3):  # 3 tentatives par registre
+                    if self._write_verify_register(reg_addr, reg_value):
                         break
-                    time.sleep(0.1)
+                    time.sleep(0.01)
             
-            return self._start_continuous_mode()
+            # Démarrer l'acquisition continue
+            GPIO.output(Configuration.CS_PIN, GPIO.LOW)
+            self.spi.xfer2([0x10])  # RDATAC command
+            GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
+            time.sleep(0.01)
+            
+            # Start conversion
+            GPIO.output(Configuration.START_PIN, GPIO.HIGH)
+            
+            return True
             
         except Exception as e:
             self.debug_info['last_error'] = f"Init error: {str(e)}"
             return False
 
-    def _write_verify_register(self, addr, value):
-        for _ in range(3):  # 3 tentatives
-            # Reset CS avec délai
-            GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
-            time.sleep(0.01)
-            
-            # Écriture
+    def _write_verify_register(self, reg_addr, reg_value):
+        try:
+            # Write register
             GPIO.output(Configuration.CS_PIN, GPIO.LOW)
-            time.sleep(0.01)
-            self.spi.xfer2([self.WREG | addr, 0x00, value])
-            time.sleep(0.01)
+            self.spi.xfer2([0x40 | reg_addr, 0x00, reg_value])
             GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
+            time.sleep(0.001)
             
-            # Lecture de vérification
+            # Read back for verification
             GPIO.output(Configuration.CS_PIN, GPIO.LOW)
-            time.sleep(0.01)
-            read_data = self.spi.xfer2([0x20 | addr, 0x00, 0x00])
-            time.sleep(0.01)
+            result = self.spi.xfer2([0x20 | reg_addr, 0x00, 0x00])
             GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
             
-            if read_data[2] == value:
-                self.debug_info['register_values'][hex(addr)] = hex(value)
-                return True
+            if result[2] != reg_value:
+                self.debug_info['last_error'] = f"Register write failed - 0x{reg_addr:X}: expected 0x{reg_value:X}, got 0x{result[2]:X}"
+                return False
             
-        self.debug_info['last_error'] = f"Register write failed - {hex(addr)}: expected {hex(value)}, got {hex(read_data[2])}"
-        return False
-
-    def _start_continuous_mode(self):
-        # Send START command
-        GPIO.output(Configuration.CS_PIN, GPIO.LOW)
-        self.spi.xfer2([0x08])  # START command
-        GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
-        time.sleep(0.01)
-        
-        # Send RDATAC command
-        GPIO.output(Configuration.CS_PIN, GPIO.LOW)
-        self.spi.xfer2([0x10])  # RDATAC command
-        GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
-        time.sleep(0.01)
-        
-        # Start data conversion
-        GPIO.output(Configuration.START_PIN, GPIO.HIGH)
-        time.sleep(0.1)
-        
-        return True
+            return True
+            
+        except Exception as e:
+            self.debug_info['last_error'] = f"Register write error: {str(e)}"
+            return False
 
     def debug_registers(self):
         try:
