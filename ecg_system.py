@@ -9,7 +9,7 @@ import psutil
 import datetime
 from collections import deque
 
-# Configuration des broches selon Data.txt
+# Configuration des broches selon Data.txt aand ext
 class Configuration:
     MOSI_PIN = 10  # GPIO10 (Pin 19)
     MISO_PIN = 9   # GPIO9 (Pin 21)
