@@ -22,6 +22,34 @@
             right: 20px;
             z-index: 1000;
         }
+        .gain-controls {
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+            margin: 10px 0;
+        }
+        .gain-btn {
+            flex: 1;
+            min-width: 60px;
+            margin: 2px;
+        }
+        .debug-info {
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+        .status-active {
+            background-color: #28a745;
+        }
+        .status-inactive {
+            background-color: #dc3545;
+        }
     </style>
 </head>
 <body>
@@ -38,25 +66,35 @@
                 </div>
                 
                 <div class="stats-card">
+                    <h4>Contrôles</h4>
+                    <button class="btn btn-primary mb-2" onclick="toggleRecording()">
+                        Démarrer/Arrêter
+                    </button>
+                    <button class="btn btn-secondary mb-2" onclick="exportData()">
+                        Exporter les données
+                    </button>
+                    <h5 class="mt-3">Gain</h5>
+                    <div class="gain-controls">
+                        <button class="btn btn-outline-primary gain-btn" onclick="setGain('1x')">1x</button>
+                        <button class="btn btn-outline-primary gain-btn" onclick="setGain('2x')">2x</button>
+                        <button class="btn btn-outline-primary gain-btn" onclick="setGain('4x')">4x</button>
+                        <button class="btn btn-outline-primary gain-btn" onclick="setGain('6x')">6x</button>
+                        <button class="btn btn-outline-primary gain-btn" onclick="setGain('8x')">8x</button>
+                        <button class="btn btn-outline-primary gain-btn" onclick="setGain('12x')">12x</button>
+                    </div>
+                </div>
+
+                <div class="stats-card">
                     <h4>Système</h4>
                     <div id="cpu-temp">Température CPU: --°C</div>
                     <div id="cpu-usage">Utilisation CPU: --%</div>
                     <div id="memory-usage">Mémoire: --%</div>
                     <div id="uptime">Temps de fonctionnement: --</div>
                 </div>
-                
-                <div class="stats-card">
-                    <h4>Contrôles</h4>
-                    <button class="btn btn-primary" onclick="toggleRecording()">
-                        Démarrer/Arrêter
-                    </button>
-                    <button class="btn btn-secondary" onclick="exportData()">
-                        Exporter les données
-                    </button>
-                </div>
 
                 <div class="stats-card">
-                    <div id="debug-info">
+                    <h4>Débogage</h4>
+                    <div id="debug-info" class="debug-info">
                         Chargement des informations de débogage...
                     </div>
                 </div>

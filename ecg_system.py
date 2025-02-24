@@ -24,6 +24,18 @@ class ECGSystem:
     WREG = 0x40  # Define WREG as 0x40
 
     def __init__(self):
+        # Ajout des paramètres de sensibilité
+        self.gain_settings = {
+            '1x': 0x00,
+            '2x': 0x10,
+            '3x': 0x20,
+            '4x': 0x30,
+            '6x': 0x40,
+            '8x': 0x50,
+            '12x': 0x60
+        }
+        self.current_gain = '6x'  # Gain par défaut
+        
         # SPI setup
         self.spi = spidev.SpiDev()
         self.spi.open(0, 0)
@@ -110,62 +122,76 @@ class ECGSystem:
         GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
         
     def initialize_ads1292r(self):
-        # Reset sequence plus strict
+        # Reset complet et plus long
         GPIO.output(Configuration.START_PIN, GPIO.LOW)
         GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
-        time.sleep(0.1)
+        time.sleep(0.2)
         
-        # Reset pulse
+        # Reset hardware
         GPIO.output(Configuration.PWDN_PIN, GPIO.LOW)
-        time.sleep(0.1)
+        time.sleep(1.0)  # Augmentation du temps de reset
         GPIO.output(Configuration.PWDN_PIN, GPIO.HIGH)
-        time.sleep(0.1)  # Wait for device to stabilize
+        time.sleep(0.5)  # Attente plus longue après reset
         
-        # Send SDATAC command with verification
+        # Stop Data Continuous
         GPIO.output(Configuration.CS_PIN, GPIO.LOW)
-        self.spi.xfer2([0x11])  # SDATAC command
-        GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
         time.sleep(0.01)
+        self.spi.xfer2([0x11])  # SDATAC
+        time.sleep(0.01)
+        GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
+        time.sleep(0.05)
         
-        # Configuration des registres avec vérification stricte
+        # Configuration avec vérification
         configs = [
             (0x01, 0x03),  # CONFIG1: 1kSPS, continuous mode
-            (0x02, 0xA0),  # CONFIG2: Internal test signal
-            (0x03, 0xE0),  # LOFF: Lead-off comp off, DC lead-off
-            (0x04, 0x60),  # CH1SET: PGA gain 6, test signal
-            (0x05, 0x60),  # CH2SET: PGA gain 6, test signal
+            (0x02, 0xA0),  # CONFIG2: Test signal square wave
+            (0x03, 0xE0),  # LOFF: Lead-off comp off
+            (0x04, self.gain_settings[self.current_gain]),  # CH1SET: PGA gain
+            (0x05, self.gain_settings[self.current_gain]),  # CH2SET: PGA gain
             (0x06, 0x2C),  # RLD_SENS
             (0x07, 0x00),  # LOFF_SENS
             (0x08, 0x00),  # LOFF_STAT
+            (0x09, 0x02),  # RESP1: Internal clock
+            (0x0A, 0x03),  # RESP2: Internal oscillator
         ]
         
+        # Méthode de vérification améliorée
         for addr, value in configs:
-            retry_count = 0
-            while retry_count < 3:  # Try up to 3 times for each register
-                # Write register
-                GPIO.output(Configuration.CS_PIN, GPIO.LOW)
-                time.sleep(0.001)  # Add small delay
-                self.spi.xfer2([self.WREG | addr, 0x00, value])
-                time.sleep(0.001)  # Add small delay
-                GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
-                time.sleep(0.001)
-                
-                # Verify register
-                GPIO.output(Configuration.CS_PIN, GPIO.LOW)
-                time.sleep(0.001)
-                read_data = self.spi.xfer2([0x20 | addr, 0x00, 0x00])
-                time.sleep(0.001)
-                GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
-                
-                if read_data[2] == value:
-                    break
-                retry_count += 1
-                time.sleep(0.01)  # Wait before retry
-            
-            if retry_count == 3:
-                self.debug_info['last_error'] = f"Register write failed after 3 attempts - {hex(addr)}: expected {hex(value)}, got {hex(read_data[2])}"
+            success = self._write_verify_register(addr, value)
+            if not success:
                 return False
         
+        return self._start_continuous_mode()
+
+    def _write_verify_register(self, addr, value):
+        for _ in range(3):  # 3 tentatives
+            # Reset CS avec délai
+            GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
+            time.sleep(0.01)
+            
+            # Écriture
+            GPIO.output(Configuration.CS_PIN, GPIO.LOW)
+            time.sleep(0.01)
+            self.spi.xfer2([self.WREG | addr, 0x00, value])
+            time.sleep(0.01)
+            GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
+            time.sleep(0.01)
+            
+            # Lecture de vérification
+            GPIO.output(Configuration.CS_PIN, GPIO.LOW)
+            time.sleep(0.01)
+            read_data = self.spi.xfer2([0x20 | addr, 0x00, 0x00])
+            time.sleep(0.01)
+            GPIO.output(Configuration.CS_PIN, GPIO.HIGH)
+            
+            if read_data[2] == value:
+                self.debug_info['register_values'][hex(addr)] = hex(value)
+                return True
+            
+        self.debug_info['last_error'] = f"Register write failed - {hex(addr)}: expected {hex(value)}, got {hex(read_data[2])}"
+        return False
+
+    def _start_continuous_mode(self):
         # Send START command
         GPIO.output(Configuration.CS_PIN, GPIO.LOW)
         self.spi.xfer2([0x08])  # START command
@@ -270,6 +296,16 @@ class ECGSystem:
             value -= 0x1000000
         return value
 
+    def set_gain(self, gain):
+        if gain not in self.gain_settings:
+            return False
+        
+        self.current_gain = gain
+        # Mettre à jour les deux canaux
+        success1 = self._write_verify_register(0x04, self.gain_settings[gain])
+        success2 = self._write_verify_register(0x05, self.gain_settings[gain])
+        return success1 and success2
+
 # Application Flask
 app = Flask(__name__)
 ecg_system = ECGSystem()
@@ -302,6 +338,11 @@ def debug_info():
         'heart_rate_buffer': list(ecg_system.heart_rate_buffer)
     }
     return jsonify(debug_data)
+
+@app.route('/api/set-gain/<gain>')
+def set_gain_route(gain):
+    success = ecg_system.set_gain(gain)
+    return jsonify({'success': success, 'current_gain': ecg_system.current_gain})
 
 def data_collection_thread():
     while True:

@@ -111,6 +111,16 @@ function exportData() {
         });
 }
 
+function setGain(gain) {
+    fetch(`/api/set-gain/${gain}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                console.log(`Gain changed to ${data.current_gain}`);
+            }
+        });
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     initializeChart();
